@@ -1,0 +1,10 @@
+scope_impersonation.switchscope:
+  path: /scope_impersonation/{rid}
+  defaults:
+    # _content: 'Drupal\scope_impersonation\Controller\Scope_ImpersonationController::switchScope_'
+    _controller: 'Drupal\scope_impersonation\Controller\ScopeImpersonationController::switchScope'
+    _title: 'Switch Scope'
+    _form: '\Drupal\scope_impersonation\Form\ScopeImpersonationForm'
+  requirements:
+    _custom_access: '\Drupal\scope_impersonation\Controller\ScopeImpersonationController::access'
+    _csrf_token: 'TRUE'

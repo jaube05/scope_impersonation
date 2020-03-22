@@ -1,0 +1,110 @@
+<?php
+
+use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\user\UserInterface;
+use Drupal\taxonomy\Entity\Term;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Session\AccountInterface;
+
+
+function scope_impersonation_user_scope_reset() {
+
+      module_load_include('module', 'sitemap_scope_filter');
+
+      $sessionUser = \Drupal::currentUser();
+      $uid = $sessionUser->id();
+
+      $renderCache = \Drupal::service('cache.render');
+      $renderCache->invalidateAll();
+
+      sitemap_scope_filter_user_login_workaround($uid);
+  }
+
+
+
+
+
+function scope_impersonation_user_scope_switch(int $DropdownMenuValue) {
+      $scope_viewing = array();
+      $scope_publishing = array();
+
+      $sessionUser = \Drupal::currentUser();
+      $uid = $sessionUser->id();
+
+      //Gets list of scope BU based on scope selected
+      $query_us = \Drupal::database()->select('act_scope', 'act_scope');
+      $query_us->fields('act_scope', ['tid', 'parent_ids', 'children_ids']);
+      $query_us->condition('act_scope.tid', $DropdownMenuValue, '=');
+      $results = $query_us->execute()->fetchAll();
+
+      //Save selection
+      $_SESSION['impersonation_scope'] = $DropdownMenuValue;
+
+      if (!empty($results) && is_array($results)) {
+          foreach ($results as $row) {
+              if (!empty($row->parent_ids)) {
+                  $row->parent_ids = explode(',', $row->parent_ids);
+
+                  // must contains all children only and itself
+                  $scope_publishing = array_merge($scope_publishing, $row->parent_ids);
+
+                  // must contains all parents, itself and all its children
+                  $scope_viewing = array_merge($scope_viewing, $row->parent_ids);
+              }
+
+              $scope_publishing = array_merge($scope_publishing, [$row->tid]);
+              $scope_viewing = array_merge($scope_viewing, [$row->tid]);
+
+              if (!empty($row->children_ids)) {
+                  $row->children_ids = explode(',', $row->children_ids);
+
+                  // must contains all parents, itself and all its children
+                  $scope_viewing = array_merge($scope_viewing, $row->children_ids);
+              }
+          }
+          //remove duplicates
+          $scope_viewing = array_unique($scope_viewing);
+          $scope_publishing = array_unique($scope_publishing);
+      }
+
+      // put the result into the session
+      $session = \Drupal::request()->getSession();
+      $session->set('act_scope__' . $uid , ['scope_viewing' => $scope_viewing, 'scope_publishing' => $scope_publishing]);
+
+      // 0. delete all connections for SCOPE
+      $db = \Drupal::database();
+
+      $num_deleted = $db->delete('user__field_scope')
+          ->condition('entity_id', $uid)
+          ->execute();
+
+      // 1. Populate DB for SCOPE
+      $insert = $db->prepare("
+          INSERT INTO user__field_scope(bundle, deleted, entity_id, revision_id, langcode, delta, field_scope_target_id)
+          VALUES ('user', 0, $uid , $uid , 'en', ?, ?)
+      ");
+
+      foreach ($scope_viewing as $key => $targetId) {
+          $res = $insert->execute( [ (int) $key, (int) $targetId ] );
+      }
+
+      // 0. delete all connections for SCOPE_PUBLISHING
+      $num_deleted = $db->delete('user__field_scope_publishing')
+          ->condition('entity_id', $uid)
+          ->execute();
+
+      // 1. Populate DB for SCOPE_PUBLISHING
+      $insert = $db->prepare("
+          INSERT INTO user__field_scope_publishing(bundle, deleted, entity_id, revision_id, langcode, delta, field_scope_publishing_target_id)
+          VALUES ('user', 0, $uid , $uid , 'en', ?, ?)
+      ");
+
+      foreach ($scope_publishing as $key => $targetId) {
+          $res = $insert->execute( [ (int) $key, (int) $targetId ] );
+      }
+
+      $renderCache = \Drupal::service('cache.render');
+      $renderCache->invalidateAll();
+
+      return null;
+  }
